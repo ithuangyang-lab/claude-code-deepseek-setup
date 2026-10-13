@@ -1,25 +1,54 @@
 # claude-code-deepseek-setup
 
-一条指令，把一台**全新的 Mac** 配成：**Node.js + Claude Code CLI + DeepSeek API**，并在 Obsidian 的 **Claudian** 插件里能正常对话。
+一条命令，把一台 Mac 配成：**Claude Code CLI + DeepSeek API**，并在 Obsidian 的 **Claudian** 插件里能正常对话。
 
 不需要你懂命令行。不需要你手动 export 一堆环境变量。
 
 ---
 
-## 一行安装
+## 快速开始
+
+### 情况 A：你的 Mac 上已经有 Node.js（v18 或更高）
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/<你的用户名>/<仓库名>/main/install.sh)
+npx -y claude-code-deepseek-setup
 ```
 
-跑完这一条，命令行部分就全好了。中途它会问你要一次 DeepSeek 的 API key。
+不确定有没有？终端里敲 `node -v`，有版本号（v18 以上）就是有。
+
+### 情况 B：全新的 Mac，什么都没有
+
+macOS **不预装 Node.js**，而 `npx` 是 Node 自带的命令 —— 所以第一步必须先装 Node，这一步省不掉。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ithuangyang-lab/claude-code-deepseek-setup/main/install.sh | bash
+```
+
+这个脚本**只干一件事**：装好 nvm + Node.js，然后自动执行上面那条 `npx` 命令。
+
+> **为什么只干这一件事？** 真正的安装逻辑只有一份，在 npm 包里。脚本和包各维护一套实现，早晚会漂移。
 
 > 想先看脚本再跑（推荐）：
 > ```bash
-> curl -fsSL https://raw.githubusercontent.com/<你的用户名>/<仓库名>/main/install.sh -o /tmp/ds-setup.sh
+> curl -fsSL https://raw.githubusercontent.com/ithuangyang-lab/claude-code-deepseek-setup/main/install.sh -o /tmp/ds-setup.sh
 > less /tmp/ds-setup.sh      # 看完按 q 退出
 > bash /tmp/ds-setup.sh
 > ```
+
+### 备选路线
+
+**直接从 GitHub 跑**（不经过 npm registry）：
+
+```bash
+npx -y github:ithuangyang-lab/claude-code-deepseek-setup
+```
+
+**装成全局命令**（之后可以反复 `claude-code-deepseek-setup` 重跑）：
+
+```bash
+npm install -g claude-code-deepseek-setup
+claude-code-deepseek-setup
+```
 
 ---
 
@@ -27,8 +56,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/<你的用户名>/<仓库名
 
 | 步骤 | 内容 |
 |---|---|
-| 1 | 装 **nvm**，再用 nvm 装 **Node.js 22**，把 nvm 初始化写进 `~/.zshrc` |
-| 2 | 全局装 **Claude Code CLI**，并输出它的绝对路径 |
+| 1 | 检测环境（macOS / Node 版本 ≥ 18） |
+| 2 | 全局装 **Claude Code CLI**（`npm install -g @anthropic-ai/claude-code`），已装则跳过 |
 | 3 | 问你要 **DeepSeek API key** |
 | 4 | 打 DeepSeek 的余额接口**验证 key 真的可用** |
 | 5 | 把 8 个环境变量写进 `~/.claude/settings.json` 的 `env` 字段（权限 600）；写 `~/.claude.json` 跳过首次登录引导 |
@@ -90,6 +119,7 @@ open "obsidian://show-plugin?id=claudian"
 ## 前置要求
 
 - **macOS**（Intel / Apple Silicon 都行）
+- **Node.js ≥ 18**（走 install.sh 引导的话，脚本会替你装）
 - 一个 **DeepSeek API key** —— https://platform.deepseek.com/api_keys
 - DeepSeek 账户**有余额**（预付费，余额 0 直接报错）
 - Obsidian **v1.13.0+**，且是**桌面端**（手机装不了 Claudian）
@@ -117,6 +147,8 @@ DeepSeek 端点自己的兜底规则：`claude-opus*` → `deepseek-v4-pro`，`c
 
 | 症状 | 原因 | 解法 |
 |---|---|---|
+| `npm install -g` 报 `EACCES` | Node 是官方 pkg 装的，全局目录要 sudo | 改用 nvm 管 Node，或手动 `sudo npm install -g @anthropic-ai/claude-code` |
+| `npx` 提示找不到包 | 包没发到 registry，或网络问题 | 换 `npx -y github:ithuangyang-lab/claude-code-deepseek-setup` |
 | `[claude-code:unrecognized_model] deepseek-flash` | **无害警告** | 不用管。Claude Code 的静态模型名单里没有 DeepSeek 的名字而已，不影响功能 |
 | `401` / `authentication_error` | key 错，或余额为 0 | 去 DeepSeek 后台查余额 |
 | 请求卡住 20 秒以上 | 本地代理拦了 | 确认 `NO_PROXY=api.deepseek.com` 生效；或在代理软件里给 `api.deepseek.com` 加直连规则 |
@@ -148,7 +180,7 @@ claude
 
 ## 卸载 / 回滚
 
-脚本**从不删除任何东西**，只做「写入」和「备份」。要回滚：
+**从不删除任何东西**，只做「写入」和「备份」。要回滚：
 
 ```bash
 # 1. 恢复配置（挑最近的备份）
@@ -160,26 +192,39 @@ cp ~/.claude/settings.json.bak-<时间戳> ~/.claude/settings.json
 
 # 3. 卸载 CLI
 npm uninstall -g @anthropic-ai/claude-code
+
+# 4. 如果装过全局命令
+npm uninstall -g claude-code-deepseek-setup
 ```
 
 ---
 
 ## 安全说明
 
-- **脚本里没有任何密钥。** API key 只在运行时由你输入，直接写进 `~/.claude/settings.json`，权限 `600`。
+- **包里没有任何密钥。** API key 只在运行时由你输入，直接写进 `~/.claude/settings.json`，权限 `600`。
 - 你可以随时 `cat ~/.claude/settings.json` 看到完整的配置，没有隐藏动作。
-- 脚本只碰这五个地方：`~/.nvm/`、`~/.claude/settings.json`、`~/.claude.json`、`~/.zshrc`、npm 全局包目录。别的一律不动。
+- 安装包只碰这几处：`~/.claude/settings.json`、`~/.claude.json`、npm 全局包目录。
+- `install.sh` 引导脚本额外碰：`~/.nvm/`、`~/.zshrc`（只往末尾追加一个带哨兵注释的块）。
 
 ---
 
-## 环境变量可调项
+## 可调项
 
-跑之前设上可以改默认行为：
+### 环境变量
 
 ```bash
-NODE_VERSION=20 bash install.sh              # 换 Node 大版本
-DEEPSEEK_MODEL=deepseek-v4-pro bash install.sh   # 换默认模型
-NVM_VERSION=v0.40.1 bash install.sh          # 换 nvm 版本
+DEEPSEEK_API_KEY=sk-xxx npx -y claude-code-deepseek-setup   # 非交互，直接给 key
+DEEPSEEK_MODEL=deepseek-v4-pro npx -y claude-code-deepseek-setup
+NODE_VERSION=20 bash install.sh          # 引导脚本：换 Node 大版本
+NVM_VERSION=v0.40.1 bash install.sh      # 引导脚本：换 nvm 版本
+PKG=github:ithuangyang-lab/claude-code-deepseek-setup bash install.sh   # 引导脚本：换包来源
+```
+
+### 命令行参数
+
+```bash
+npx -y claude-code-deepseek-setup --help
+npx -y claude-code-deepseek-setup --version
 ```
 
 ---
@@ -190,6 +235,7 @@ NVM_VERSION=v0.40.1 bash install.sh          # 换 nvm 版本
 
 - ✅ **已验证**：8 个环境变量的名称与作用、DeepSeek 的 base URL 与模型映射规则、Claudian 的三项设置字段名、`settings.json` 的 `env` 字段、`hasCompletedOnboarding` 跳过引导 —— 都有官方文档或实机依据。
 - ⚠️ **未实测**：**「只写 `settings.json`、Claudian 环境变量栏留空」这个组合**。原理上成立（官方文档明确 `env` 覆盖 shell 变量，且 Claudian 不注入同名变量时不会覆盖它），但没在干净的新机器上跑过。**如果 Claudian 里对话不工作，把 8 个变量原样再填进 Claudian 的 Environment 栏即可** —— 那是实机验证过的写法，两者都填不冲突。
+- ⚠️ **未实测**：npm 包形态（`bin/cli.js`）与 bash 版逻辑等价，但**尚未在一台干净的新 Mac 上端到端跑过**。
 
 ---
 

@@ -1,0 +1,42 @@
+{
+  "name": "claude-code-deepseek-setup",
+  "version": "1.0.0",
+  "description": "一条命令把 Mac 配成 Claude Code CLI + DeepSeek API（含 Obsidian Claudian 配置指引）",
+  "bin": {
+    "claude-code-deepseek-setup": "bin/cli.js"
+  },
+  "files": [
+    "bin",
+    "install.sh",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin"
+  ],
+  "scripts": {
+    "check": "node --check bin/cli.js"
+  },
+  "keywords": [
+    "claude-code",
+    "deepseek",
+    "anthropic",
+    "setup",
+    "installer",
+    "macos",
+    "obsidian",
+    "claudian"
+  ],
+  "author": "ithuangyang-lab",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ithuangyang-lab/claude-code-deepseek-setup.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ithuangyang-lab/claude-code-deepseek-setup/issues"
+  },
+  "homepage": "https://github.com/ithuangyang-lab/claude-code-deepseek-setup#readme"
+}

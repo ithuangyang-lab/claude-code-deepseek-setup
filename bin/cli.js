@@ -5,14 +5,18 @@
  * 一条命令把一台 Mac 配成：Claude Code CLI + DeepSeek API，
  * 并打印 Obsidian Claudian 的配置指引。
  *
- *   npx -y claude-code-deepseek-setup
+ *   npx -y claude-code-deepseek-setup                    基础：CLI + DeepSeek + 工作台 skill
+ *   npx -y claude-code-deepseek-setup --with-all         再带上飞书 CLI 和 ChatCut
  *   npx -y github:ithuangyang-lab/claude-code-deepseek-setup
  *
  * 幂等：重复执行不会破坏已有配置，改动前一律备份。
  * 安全：本包不含任何密钥；API key 只在运行时由你输入，
  *       写入 ~/.claude/settings.json（权限 600）。
  *
- * 只碰这些地方：~/.claude/settings.json、~/.claude.json、npm 全局包目录。
+ * 可选模块一律「尽力而为」：装不上只警告、跳过，不影响主流程。
+ *
+ * 只碰这些地方：~/.claude/settings.json、~/.claude.json、~/.claude/skills/、
+ *              npm 全局包目录、~/.claude/plugins/（仅在加 --with-chatcut 时）。
  */
 'use strict'
 
@@ -35,10 +39,19 @@ const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-flash'
 const DEEPSEEK_PRO_MODEL = process.env.DEEPSEEK_PRO_MODEL || 'deepseek-v4-pro'
 const CLAUDE_PKG = '@anthropic-ai/claude-code'
 
+/* 可选模块 */
+const LARK_PKG = '@larksuite/cli'
+const CHATCUT_MARKETPLACE = 'chatcut-inc'
+const CHATCUT_MARKETPLACE_URL = 'https://github.com/ChatCut-Inc/agent-plugin.git'
+const CHATCUT_PLUGIN = 'chatcut@chatcut-inc'
+const WORKBENCH_SKILL = 'ai-workbench-portable'
+
 const HOME = os.homedir()
 const CLAUDE_DIR = path.join(HOME, '.claude')
 const SETTINGS_JSON = path.join(CLAUDE_DIR, 'settings.json')
 const CLAUDE_JSON = path.join(HOME, '.claude.json')
+const SKILLS_DIR = path.join(CLAUDE_DIR, 'skills')
+const PLUGINS_DIR = path.join(CLAUDE_DIR, 'plugins')
 const STAMP = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
 
 /* ---------------------------------------------------------------- 输出 */
@@ -235,9 +248,136 @@ function runSmokeTest(claudeBin) {
   die(`没有任何返回。多数是网络问题：确认 NO_PROXY 生效、代理没拦 ${DEEPSEEK_HOST}。`)
 }
 
+/* ------------------------------------------------- 可选模块（失败只警告） */
+
+/**
+ * 默认模块：装「搭工作台」skill。
+ * 纯文件拷贝，零依赖，装不上才奇怪 —— 但仍然不 die。
+ */
+function installWorkbenchSkill() {
+  const src = path.join(__dirname, '..', 'skills', WORKBENCH_SKILL, 'SKILL.md')
+  if (!fs.existsSync(src)) {
+    warn('包里没找到 skill 源文件（可能是从源码目录直接跑的），跳过')
+    return
+  }
+
+  const destDir = path.join(SKILLS_DIR, WORKBENCH_SKILL)
+  const dest = path.join(destDir, 'SKILL.md')
+
+  if (fs.existsSync(dest)) {
+    let same = false
+    try {
+      same = fs.readFileSync(src, 'utf8') === fs.readFileSync(dest, 'utf8')
+    } catch {
+      /* 读不了就当不同，走下面的覆盖+备份 */
+    }
+    if (same) {
+      ok(`${WORKBENCH_SKILL} 已存在且内容一致，跳过`)
+      return
+    }
+    const bak = `${dest}.bak-${STAMP}`
+    fs.copyFileSync(dest, bak)
+    warn(`已有版本内容不同，旧版备份到 ${path.basename(bak)}`)
+  }
+
+  fs.mkdirSync(destDir, { recursive: true })
+  fs.copyFileSync(src, dest)
+  ok(`已装到 ${dest}`)
+  info('之后在 Claude Code 里说「搭工作台」即可触发')
+}
+
+/** 可选模块：飞书 CLI。装完仍需用户本人两步操作，脚本代替不了 */
+function installFeishu() {
+  let bin = which('lark-cli')
+  if (bin) {
+    ok('lark-cli 已存在，跳过安装')
+  } else {
+    info(`正在全局安装 ${LARK_PKG} ...`)
+    const r = child.spawnSync('npm', ['install', '-g', LARK_PKG], { stdio: 'inherit' })
+    if (r.status !== 0) {
+      warn(`装 ${LARK_PKG} 失败，跳过（不影响前面已完成的部分）`)
+      info(`想重试：npm install -g ${LARK_PKG}`)
+      return
+    }
+    bin = which('lark-cli')
+  }
+
+  if (!bin) {
+    warn('装完仍找不到 lark-cli 命令，重开终端再试')
+    return
+  }
+  ok(`lark-cli 就绪：${bin}`)
+  console.log()
+  info('★ 还差两步，必须你本人操作，命令行代替不了：')
+  info('   1) lark-cli config init')
+  info('      填你自己飞书自建应用的 app-id / app-secret')
+  info('      （在 open.feishu.cn 开放平台建一个自建应用，开通要用的权限）')
+  info('   2) lark-cli auth login')
+  info('      会给你一个链接/二维码，在手机或浏览器上点授权')
+  info('   两步都过了才算能用。')
+}
+
+/** 可选模块：ChatCut 插件（不是 CLI，是 Claude Code 的 MCP 插件） */
+function installChatcut() {
+  const installed = readJsonSafe(path.join(PLUGINS_DIR, 'installed_plugins.json'))
+  const plugins = installed.plugins
+  if (
+    plugins &&
+    typeof plugins === 'object' &&
+    Object.keys(plugins).some((k) => k.startsWith('chatcut@'))
+  ) {
+    ok('ChatCut 插件已装，跳过')
+    return
+  }
+
+  const claudeBin = which('claude')
+  if (!claudeBin) {
+    warn('找不到 claude 命令，跳过 ChatCut')
+    return
+  }
+
+  // 已加过市场就别重复加，否则 claude 可能报错
+  const known = readJsonSafe(path.join(PLUGINS_DIR, 'known_marketplaces.json'))
+  if (!known[CHATCUT_MARKETPLACE]) {
+    info('添加 ChatCut 插件市场（要连 GitHub，国内网络通常需要代理）...')
+    const r = child.spawnSync(
+      claudeBin,
+      ['plugin', 'marketplace', 'add', CHATCUT_MARKETPLACE_URL],
+      { stdio: 'inherit', timeout: 120000 }
+    )
+    if (r.status !== 0) {
+      warn('添加插件市场失败 —— 多半是 GitHub 连不上。跳过。')
+      info(`想手动装：claude plugin marketplace add ${CHATCUT_MARKETPLACE_URL}`)
+      return
+    }
+  }
+
+  info(`正在安装 ${CHATCUT_PLUGIN} ...`)
+  const r2 = child.spawnSync(claudeBin, ['plugin', 'install', CHATCUT_PLUGIN, '-y'], {
+    stdio: 'inherit',
+    timeout: 180000,
+  })
+  if (r2.status !== 0) {
+    warn('ChatCut 插件安装失败，跳过。')
+    info(`想手动装：claude plugin install ${CHATCUT_PLUGIN} -y`)
+    return
+  }
+
+  ok('ChatCut 插件已装')
+  warn('★ 必须重开一个 Claude Code 会话才生效 —— 当前窗口里不会出现这些工具')
+  info('首次用到时会弹授权，登录 ChatCut 账号即可')
+}
+
 function printFooter(claudeBin) {
   console.log(`
 ${C.green}命令行部分全部完成。${C.off}
+
+${C.dim}────────────────────────────────────────────────${C.off}
+顺手装好的：「搭工作台」skill
+
+  在 Claude Code 里说一句「${C.cyan}搭工作台${C.off}」，它会带你建目录、问 15 个问题、
+  生成 user.md / CLAUDE.md / HANDOFF.md 四个文件。
+  约 30 分钟，其中 20 分钟是你在回答。
 
 ${C.dim}────────────────────────────────────────────────${C.off}
 下一步：Obsidian 里的 Claudian（需手动点两下，GUI 装插件无法纯命令行完成）
@@ -266,19 +406,47 @@ ${C.dim}────────────────────────
 }
 
 /* ---------------------------------------------------------------- 主流程 */
-async function main() {
+async function main(opts) {
+  /* 步数由这张表算出来 —— 加一步就往数组里加一行，不会算错分母 */
+  const stepTitles = [
+    '环境检查',
+    '安装 Claude Code CLI',
+    'DeepSeek API key',
+    '验证 key 与余额',
+    '写入 Claude Code 配置',
+    '端到端验证（真的调一次 DeepSeek）',
+    '装「搭工作台」skill',
+  ]
+  if (opts.withFeishu) stepTitles.push('安装飞书 CLI')
+  if (opts.withChatcut) stepTitles.push('安装 ChatCut 插件')
+
+  const total = stepTitles.length
+  let n = 0
+  const nextStep = () => step(`${++n}/${total}  ${stepTitles[n - 1]}`)
+
+  const extras = []
+  if (opts.withFeishu) extras.push('飞书 CLI')
+  if (opts.withChatcut) extras.push('ChatCut')
+
   console.log(`${C.dim}claude-code-deepseek-setup v${PKG_VERSION}${C.off}`)
-  console.log(`${C.dim}目标：Claude Code CLI + DeepSeek API${C.off}`)
+  console.log(
+    `${C.dim}目标：Claude Code CLI + DeepSeek API + 搭工作台 skill` +
+      (extras.length ? ` + ${extras.join(' + ')}` : '') +
+      `${C.off}`
+  )
+  if (!extras.length) {
+    info('（想连飞书 CLI 和 ChatCut 一起装，加参数 --with-all）')
+  }
 
   /* ---- 0. 环境检查 ---- */
-  step('0/5  环境检查')
+  nextStep()
   if (process.platform !== 'darwin') die('这个工具目前只支持 macOS。')
   const nodeMajor = Number(process.versions.node.split('.')[0])
   if (nodeMajor < 18) die(`Node 版本太低（当前 v${process.versions.node}），需要 v18 或更高。`)
   ok(`macOS · Node v${process.versions.node} · npm ${npmVersion()}`)
 
   /* ---- 1. Claude Code CLI ---- */
-  step('1/5  安装 Claude Code CLI')
+  nextStep()
   let claudeBin = which('claude')
   if (claudeBin) {
     ok('claude 已存在，跳过安装')
@@ -306,7 +474,7 @@ async function main() {
   ok(`绝对路径：${claudeBin}   ${C.dim}(Claudian 要填这个)${C.off}`)
 
   /* ---- 2. DeepSeek API key ---- */
-  step('2/5  DeepSeek API key')
+  nextStep()
   let key = (process.env.DEEPSEEK_API_KEY || '').trim()
   if (key) {
     ok('已从环境变量 DEEPSEEK_API_KEY 读到 key')
@@ -328,17 +496,31 @@ async function main() {
   ok(`key 已就绪：${mask(key)}`)
 
   /* ---- 3. 验证 key 与余额 ---- */
-  step('3/5  验证 key 与余额')
+  nextStep()
   await verifyBalance(key)
 
   /* ---- 4. 写配置 ---- */
-  step('4/5  写入 Claude Code 配置')
+  nextStep()
   writeClaudeSettings(key)
   writeClaudeJson()
 
   /* ---- 5. 端到端验证 ---- */
-  step('5/5  端到端验证（真的调一次 DeepSeek）')
+  nextStep()
   runSmokeTest(claudeBin)
+
+  /* ---- 6. 默认模块：搭工作台 skill ---- */
+  nextStep()
+  installWorkbenchSkill()
+
+  /* ---- 7/8. 可选模块：装不上只警告，不回滚前面 ---- */
+  if (opts.withFeishu) {
+    nextStep()
+    installFeishu()
+  }
+  if (opts.withChatcut) {
+    nextStep()
+    installChatcut()
+  }
 
   /* ---- 收尾 ---- */
   printFooter(claudeBin)
@@ -349,11 +531,28 @@ function printHelp() {
   console.log(`
 claude-code-deepseek-setup v${PKG_VERSION}
 
-把一台 Mac 配成 Claude Code CLI + DeepSeek API。
+把一台 Mac 配成 Claude Code CLI + DeepSeek API，并装上「搭工作台」skill。
 
 用法
-  npx -y claude-code-deepseek-setup
+  npx -y claude-code-deepseek-setup                 基础三样
+  npx -y claude-code-deepseek-setup --with-all      再加上飞书 CLI 和 ChatCut
   npx -y github:ithuangyang-lab/claude-code-deepseek-setup
+
+参数
+  --with-feishu     额外装飞书 CLI（npm 包 @larksuite/cli）
+  --with-chatcut    额外装 ChatCut 插件
+  --with-all        上面两个都装
+  -h, --help        看这个
+  -v, --version     看版本
+
+默认装的三样
+  1. Claude Code CLI
+  2. DeepSeek API 配置（写进 ~/.claude/settings.json）
+  3. 「搭工作台」skill —— 装完在 Claude Code 里说「搭工作台」即可触发
+
+★ 两个可选模块最后一步都得你本人操作，脚本代替不了：
+    飞书 CLI  装完还要跑 lark-cli config init（填自建应用凭证）+ lark-cli auth login（手机授权）
+    ChatCut   是 Claude Code 插件不是命令，装完必须重开一个会话才生效
 
 可调环境变量
   DEEPSEEK_API_KEY    直接给 key，跳过交互提问
@@ -361,21 +560,53 @@ claude-code-deepseek-setup v${PKG_VERSION}
   DEEPSEEK_PRO_MODEL  Opus 档实际调用的模型（默认 deepseek-v4-pro）
 
 它只碰这几处
-  ~/.claude/settings.json   ~/.claude.json   npm 全局包目录
+  ~/.claude/settings.json   ~/.claude.json   ~/.claude/skills/
+  npm 全局包目录   ~/.claude/plugins/（只在加了 --with-chatcut 时）
 `)
 }
 
-const argv = process.argv.slice(2)
-if (argv.includes('-h') || argv.includes('--help')) {
+/* ---------------------------------------------------------------- 参数 */
+function parseArgs(argv) {
+  const opts = { withFeishu: false, withChatcut: false, help: false, version: false }
+  for (const a of argv) {
+    switch (a) {
+      case '--with-feishu':
+        opts.withFeishu = true
+        break
+      case '--with-chatcut':
+        opts.withChatcut = true
+        break
+      case '--with-all':
+      case '--all':
+        opts.withFeishu = true
+        opts.withChatcut = true
+        break
+      case '-h':
+      case '--help':
+        opts.help = true
+        break
+      case '-v':
+      case '--version':
+        opts.version = true
+        break
+      default:
+        if (a.startsWith('-')) die(`不认识的参数：${a}\n  跑 --help 看用法。`)
+    }
+  }
+  return opts
+}
+
+const opts = parseArgs(process.argv.slice(2))
+if (opts.help) {
   printHelp()
   process.exit(0)
 }
-if (argv.includes('-v') || argv.includes('--version')) {
+if (opts.version) {
   console.log(PKG_VERSION)
   process.exit(0)
 }
 
-main().catch((err) => {
+main(opts).catch((err) => {
   console.error(`\n${C.red}✗ 出错了：${err && err.stack ? err.stack : err}${C.off}`)
   process.exit(1)
 })

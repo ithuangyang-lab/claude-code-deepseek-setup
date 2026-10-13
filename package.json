@@ -1,13 +1,14 @@
 {
   "name": "claude-code-deepseek-setup",
-  "version": "1.0.0",
-  "description": "一条命令把 Mac 配成 Claude Code CLI + DeepSeek API（含 Obsidian Claudian 配置指引）",
+  "version": "1.1.0",
+  "description": "一条命令把 Mac 配成 Claude Code CLI + DeepSeek API + 「搭工作台」skill（可选加装飞书 CLI / ChatCut）",
   "bin": {
     "claude-code-deepseek-setup": "bin/cli.js"
   },
   "files": [
     "bin",
     "install.sh",
+    "skills",
     "README.md"
   ],
   "engines": {
@@ -27,7 +28,12 @@
     "installer",
     "macos",
     "obsidian",
-    "claudian"
+    "claudian",
+    "skill",
+    "workbench",
+    "lark",
+    "feishu",
+    "chatcut"
   ],
   "author": "ithuangyang-lab",
   "license": "MIT",

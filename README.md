@@ -1,8 +1,14 @@
 # claude-code-deepseek-setup
 
-一条命令，把一台 Mac 配成：**Claude Code CLI + DeepSeek API**，并在 Obsidian 的 **Claudian** 插件里能正常对话。
+一条命令，把一台 Mac 配成：**Claude Code CLI + DeepSeek API + 「搭工作台」skill**，并在 Obsidian 的 **Claudian** 插件里能正常对话。
 
 不需要你懂命令行。不需要你手动 export 一堆环境变量。
+
+想连带 **飞书 CLI** 和 **ChatCut** 一起装，加一个参数就行：
+
+```bash
+npx -y claude-code-deepseek-setup --with-all
+```
 
 ---
 
@@ -11,7 +17,8 @@
 ### 情况 A：你的 Mac 上已经有 Node.js（v18 或更高）
 
 ```bash
-npx -y claude-code-deepseek-setup
+npx -y claude-code-deepseek-setup          # 默认三样
+npx -y claude-code-deepseek-setup --with-all   # 再加飞书 CLI 和 ChatCut
 ```
 
 不确定有没有？终端里敲 `node -v`，有版本号（v18 以上）就是有。
@@ -54,6 +61,8 @@ claude-code-deepseek-setup
 
 ## 它做了什么
 
+默认 7 步：
+
 | 步骤 | 内容 |
 |---|---|
 | 1 | 检测环境（macOS / Node 版本 ≥ 18） |
@@ -62,8 +71,59 @@ claude-code-deepseek-setup
 | 4 | 打 DeepSeek 的余额接口**验证 key 真的可用** |
 | 5 | 把 8 个环境变量写进 `~/.claude/settings.json` 的 `env` 字段（权限 600）；写 `~/.claude.json` 跳过首次登录引导 |
 | 6 | **真的调一次 DeepSeek**，确认端到端通了 |
+| 7 | 装「搭工作台」skill 到 `~/.claude/skills/ai-workbench-portable/` |
+
+加了 `--with-feishu` / `--with-chatcut` 就多两步（8、9 步）。
+
+> 第 7 步特意放在第 6 步**之后** —— 万一 DeepSeek 没通，脚本会当场停下，
+> 不会给你留一个「装了 skill 但 AI 根本连不上」的半成品。
 
 全程**幂等**：重复跑不会坏，改动前一律先备份（`*.bak-<时间戳>`）。
+
+---
+
+## 两个可选模块（默认不装）
+
+```bash
+npx -y claude-code-deepseek-setup --with-feishu    # 只加飞书 CLI
+npx -y claude-code-deepseek-setup --with-chatcut   # 只加 ChatCut
+npx -y claude-code-deepseek-setup --with-all       # 两个都加
+```
+
+**为什么默认不装**：这两个装完都**不能立刻用**，各自还差一步必须你本人操作。
+无脑装反而容易让人以为坏了，所以做成显式开关。
+
+**两个模块都是「尽力而为」**：装不上只打一行警告然后跳过，不会回滚前面已经装好的部分。
+
+### 飞书 CLI
+
+装的是 npm 包 [`@larksuite/cli`](https://www.npmjs.com/package/@larksuite/cli)，命令名 `lark-cli`。
+
+> ⚠️ **装完还不能用，还差两步，命令行代替不了：**
+>
+> ```bash
+> lark-cli config init    # 填你自己飞书自建应用的 app-id / app-secret
+> lark-cli auth login     # 给你一个链接/二维码，在手机或浏览器上点授权
+> ```
+>
+> `app-id` / `app-secret` 要在 [open.feishu.cn](https://open.feishu.cn) 建一个**自建应用**，
+> 并按你要用的功能开通对应权限。**这一步没有任何脚本能替你做** —— 它绑的是你的账号。
+
+### ChatCut
+
+> ⚠️ **ChatCut 不是一个命令**，它是 Claude Code 的插件（`chatcut@chatcut-inc`）。
+> 装完**必须重开一个 Claude Code 会话**才生效 —— 当前窗口里不会出现那些工具。
+> 首次调用时会弹一次授权，登录 ChatCut 账号即可。
+
+装的过程要连 GitHub 拉插件市场，**国内网络通常需要代理**。装不上时脚本会打印手动命令：
+
+```bash
+claude plugin marketplace add https://github.com/ChatCut-Inc/agent-plugin.git
+claude plugin install chatcut@chatcut-inc -y
+```
+
+> 装好后 `~/.claude/skills/` 里会多出一批 `chatcut-*` 目录 —— 那是插件自带的，
+> 插件安装时自动铺进去，不用你单独装。
 
 ---
 
@@ -113,6 +173,29 @@ open "obsidian://show-plugin?id=claudian"
 **3. 测**
 
 点侧边栏机器人图标 → 模型菜单选 `deepseek-flash` → 发一句话。
+
+---
+
+## 顺手装好的：「搭工作台」skill
+
+装完在上面那个 Claude Code 里（终端或 Claudian 都行）说一句：
+
+> **搭工作台**
+
+它会带你走四步：
+
+1. 问你知识库放哪个文件夹，**建好目录骨架**（`01-收件箱` / `02-在做的` / `03-知识` / `04-素材` / `05-归档`）
+2. **一次一题问你 15 个问题** —— 你是谁、你的尺子是什么、什么会让你一眼 pass、AI 不许碰什么
+3. 按你的回答**生成四个文件**：`README.md` / `user.md` / `CLAUDE.md` / `HANDOFF.md`
+4. **点火验证** —— 故意写一句不像你的话，让你纠正，当场把这条纠正写成一条永久记忆
+
+**约 30 分钟，其中 20 分钟是你在回答问题。**
+
+> 它的价值不在那四个文件（那部分只占 31%），在于**「你纠正它 → 它记下来」这个机制**（占 69%）。
+> 用满两周、攒到 10 条记忆之后，你就不想再换回一个什么都不记得的 AI 了。
+
+源文件在 `skills/ai-workbench-portable/SKILL.md`，**单文件、自包含**，
+你也可以把它直接发给别人的 AI，不需要装任何东西。
 
 ---
 
@@ -197,14 +280,38 @@ npm uninstall -g @anthropic-ai/claude-code
 npm uninstall -g claude-code-deepseek-setup
 ```
 
+**装了可选模块的，额外三步：**
+
+```bash
+# 5. 移除「搭工作台」skill
+rm -rf ~/.claude/skills/ai-workbench-portable
+
+# 6. 卸飞书 CLI（如果装过）
+npm uninstall -g @larksuite/cli
+
+# 7. 卸 ChatCut 插件（如果装过）
+claude plugin uninstall chatcut@chatcut-inc
+```
+
+> ⚠️ 第 6 步**不会清掉你的飞书应用凭证** —— 那个在系统钥匙串里，要自己去「钥匙串访问」搜 `lark` 删。
+
 ---
 
 ## 安全说明
 
 - **包里没有任何密钥。** API key 只在运行时由你输入，直接写进 `~/.claude/settings.json`，权限 `600`。
 - 你可以随时 `cat ~/.claude/settings.json` 看到完整的配置，没有隐藏动作。
-- 安装包只碰这几处：`~/.claude/settings.json`、`~/.claude.json`、npm 全局包目录。
-- `install.sh` 引导脚本额外碰：`~/.nvm/`、`~/.zshrc`（只往末尾追加一个带哨兵注释的块）。
+**默认只碰这四处：**
+
+`~/.claude/settings.json` · `~/.claude.json` · `~/.claude/skills/ai-workbench-portable/` · npm 全局包目录
+
+**加 `--with-feishu` 多碰一处**：npm 全局包目录（装 `@larksuite/cli`）。
+
+**加 `--with-chatcut` 多碰一处**：`~/.claude/plugins/`（Claude Code 的插件目录，写之前会调官方 `claude plugin` 命令，不是自己乱写）。
+
+**`install.sh` 引导脚本额外碰**：`~/.nvm/`、`~/.zshrc`（只往末尾追加一个带哨兵注释的块）。
+
+> 除了上面这些，**不碰你的任何文档、任何配置**。
 
 ---
 
@@ -223,9 +330,15 @@ PKG=github:ithuangyang-lab/claude-code-deepseek-setup bash install.sh   # 引导
 ### 命令行参数
 
 ```bash
-npx -y claude-code-deepseek-setup --help
-npx -y claude-code-deepseek-setup --version
+npx -y claude-code-deepseek-setup --help           # 看全部参数
+npx -y claude-code-deepseek-setup --version        # 看版本
+
+npx -y claude-code-deepseek-setup --with-feishu    # 加装飞书 CLI
+npx -y claude-code-deepseek-setup --with-chatcut   # 加装 ChatCut
+npx -y claude-code-deepseek-setup --with-all       # 两个都加
 ```
+
+> `--with-feishu` / `--with-chatcut` 可以一起写，效果同 `--with-all`。
 
 ---
 
@@ -236,6 +349,9 @@ npx -y claude-code-deepseek-setup --version
 - ✅ **已验证**：8 个环境变量的名称与作用、DeepSeek 的 base URL 与模型映射规则、Claudian 的三项设置字段名、`settings.json` 的 `env` 字段、`hasCompletedOnboarding` 跳过引导 —— 都有官方文档或实机依据。
 - ⚠️ **未实测**：**「只写 `settings.json`、Claudian 环境变量栏留空」这个组合**。原理上成立（官方文档明确 `env` 覆盖 shell 变量，且 Claudian 不注入同名变量时不会覆盖它），但没在干净的新机器上跑过。**如果 Claudian 里对话不工作，把 8 个变量原样再填进 Claudian 的 Environment 栏即可** —— 那是实机验证过的写法，两者都填不冲突。
 - ⚠️ **未实测**：npm 包形态（`bin/cli.js`）与 bash 版逻辑等价，但**尚未在一台干净的新 Mac 上端到端跑过**。
+- ✅ **已实测**：「装『搭工作台』skill」这一步（第 7 步）**三条分支全跑过** —— 空目录能装上、原样重跑会跳过、目标文件被改过会先备份再覆盖。用真代码 + 假 `HOME` 跑的，没碰真环境。
+- ⚠️ **未实测**：`--with-feishu` 和 `--with-chatcut` 这两条安装命令**没有在干净机器上跑过** —— 只核对过包名、命令语法和 `--help` 输出。你本机这两个都已装好，跑也只会「已存在跳过」，验不出真东西。**要真验得找一台没装过的机器。**
+- ⚠️ **未实测**：`--with-chatcut` 依赖 GitHub 连通性。国内网络下 `github.com` 直连会超时，**通常需要代理**；脚本装不上时只警告不中断，会打印手动命令。
 
 ---
 
